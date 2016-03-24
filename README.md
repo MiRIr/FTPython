@@ -2,6 +2,6 @@
 
 An FTP server written in Python
 
-Michael Irvine
+* Michael Irvine
 
-Matthew Larrimore
+* Matthew Larrimore
