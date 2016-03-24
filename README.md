@@ -1,6 +1,6 @@
 # FTPython
 
-An FTP server written in Python
+An FTP server written in Python.
 
 * Michael Irvine
 
