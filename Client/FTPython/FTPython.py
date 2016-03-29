@@ -4,7 +4,7 @@ import socket
 import time
 import thread
 
-dataChannels = []
+dataChannel = None
 binary = True
 
 def Send(s, i):
@@ -18,27 +18,22 @@ def ServerOutput(s):
 		try:
 			out = str(s.recv(4096))
 			print out
+			global dataChannel
 			if out.startswith('227'):
 				response = out.split('(')[1].split(',')
 				ip = response[0] + '.' + response[1] + '.' + response[2] + '.' + response[3]
 				port = int(response[4]) * 256 + int(response[5].replace(')', ''))
-				global dataChannels
-				dataChannels[0] = (dataChannels[0],) + (ip, port)
+				dataChannel = (dataChannel, ip, port)
+			elif out.startswith('150'):
+				global binary
+				if (dataChannel[0].upper().startswith('RETR') or dataChannel[0].upper().startswith('GET')) and binary:
+					thread.start_new_thread(DownloadFile, (dataChannel,))
+				elif dataChannel[0].upper().startswith('LIST') or dataChannel[0].upper().startswith('MLSD') or not binary:
+					thread.start_new_thread(HandleASCII, (dataChannel,))
+				dataChannel = None
+
 		except:
 			break
-
-def HandleDataChannels():
-	global dataChannels
-	while True:
-		if len(dataChannels) > 0:
-			if len(dataChannels[0]) == 3:
-				global binary
-				if (dataChannels[0][0].upper().startswith('RETR') or dataChannels[0][0].upper().startswith('GET')) and binary:
-					thread.start_new_thread(DownloadFile, (dataChannels[0],))
-					dataChannels.pop(0)
-				elif dataChannels[0][0].upper().startswith('LIST') or dataChannels[0][0].upper().startswith('MLSD') or not binary:
-					thread.start_new_thread(HandleASCII, (dataChannels[0],))
-					dataChannels.pop(0)
 			
 def DownloadFile(info):
 	try:
@@ -72,25 +67,35 @@ def HandleASCII(info):
 		pass
 
 def main():
-	#ip = raw_input('Server Address- ')
-
 	while True:
+		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		while True:
 			try:
-				s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-				s.connect(('10.0.0.2', 831))
+				ip = raw_input('Server Address- ')
+				s.connect((ip, 831))
 				i = s.recv(1024)
 				print i
 				break
 			except:
-				print 'Server Not Found'
-				time.sleep(1)
+				print 'Server not found'
 
-		Send(s, 'USER LANLauncher')
-		Send(s, 'PASS')
+		while True:
+			i = raw_input('USER ')
+			Send(s, 'USER ' + i)
+			response = str(s.recv(1024))
+			print response
+			if response.startswith('331'):
+				break
+
+		while True:
+			i = getpass.getpass('PASS ')
+			Send(s, 'PASS ' + i)
+			response = str(s.recv(1024))
+			print response
+			if response.startswith('230'):
+				break
 	
 		thread.start_new_thread(ServerOutput, (s,))
-		thread.start_new_thread(HandleDataChannels, ())
 		while True:
 			i = raw_input()
 			while len(i) == 0:
@@ -100,8 +105,8 @@ def main():
 			if i.upper().startswith('RETR ') or i.upper().startswith('GET ') or i.upper().startswith('MLSD ') or i.upper().startswith('LIST '):
 				Send(s, 'PASV')
 				Send(s, i)
-				global dataChannels
-				dataChannels.insert(0, i)
+				global dataChannel
+				dataChannel = i
 			elif i.upper().startswith('ASCII'):
 				global binary
 				binary = not binary
