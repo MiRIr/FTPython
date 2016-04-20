@@ -6,7 +6,7 @@ import random
 
 def clientThread(client, ip):
 	client.send('220 FTPython')
-	wd = 'F:\\'
+	wd = 'C:\\FTPFiles\\'
 	loggedin = encrypt = compress = False
 	dataChannel = None
 
@@ -14,28 +14,29 @@ def clientThread(client, ip):
 		fileName = wd + info[1].strip()
 
 		if os.path.isfile(fileName):
-			s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			dC = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			dC.bind((socket.gethostname(), info[0]))
+			dC.listen(20)
 			print 'Opening data channel on port ' + str(info[0])
-			s.bind((socket.gethostname(), info[0]))
-			s.listen(1)
-			channel, r = s.accept()
+			print '1'
 			while True:
-				if ip[0] == r[0]:
-					print 'Client connected to data channel'
-					break
-				else:
+				try:
+					print '1+'
+					channel, r = dC.accept()
+					print '2'
+					f = open(fileName, 'rb')
+					print '3'
+					l = f.read(4096)
+					while l:
+						channel.send(l)
+						l = f.read(4096)
+					f.close()
+					print 'Client has finished downloading ' + info[1]
+					client.send('226 Successfully transferred ' + info[1])
 					channel.close()
-					channel, r = s.accept()
-				break
-			f = open(fileName, 'rb')
-			l = f.read(4096)
-			while l:
-				channel.send(l)
-				l = f.read(4096)
-			f.close()
-			print 'Client has finished downloading ' + info[1]
-			client.send('226 Successfully transferred ' + info[1])
-			channel.close()
+					break
+				except:
+					print 'Could not find client'
 		else:
 			print fileName + ' was not found'
 			client.send('550 File not found')

@@ -13,7 +13,30 @@ def Send(s, i):
 	except:
 		print 'The server is no longer connected.'
 
-def ServerOutput(s):
+def ServerOutput(s, serverIP):
+	def DownloadFile(info):
+		try:
+			c = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			while True:
+				try:
+					print 'Trying to connect'
+					print serverIP
+					c.connect((serverIP, info[2]))
+					break
+				except:
+					time.sleep(1)
+			
+			f = open(info[0].split(' ', 1)[1], 'wb')
+			while True:
+				data = c.recv(4096)
+				if not data:
+					break
+				f.write(data)
+			f.close()
+			print 'Finished ' + info[0].split(' ', 1)[1]
+		except:
+			pass
+	
 	while True:
 		try:
 			out = str(s.recv(4096))
@@ -34,22 +57,6 @@ def ServerOutput(s):
 
 		except:
 			break
-			
-def DownloadFile(info):
-	try:
-		c = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		c.connect((info[1], info[2]))
-
-		f = open(info[0].split(' ', 1)[1], 'wb')
-		while True:
-			data = c.recv(4096)
-			if not data:
-				break
-			f.write(data)
-		f.close()
-		print 'Finished ' + info[0].split(' ', 1)[1]
-	except:
-		pass
 
 def HandleASCII(info):
 	try:
@@ -69,6 +76,7 @@ def HandleASCII(info):
 def main():
 	while True:
 		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		ip = None
 		while True:
 			try:
 				ip = raw_input('Server Address- ')
@@ -95,7 +103,7 @@ def main():
 			if response.startswith('230'):
 				break
 	
-		thread.start_new_thread(ServerOutput, (s,))
+		thread.start_new_thread(ServerOutput, (s,ip))
 		while True:
 			i = raw_input()
 			while len(i) == 0:
