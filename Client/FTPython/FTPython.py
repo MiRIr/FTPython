@@ -1,82 +1,104 @@
 ﻿import ctypes
 import getpass
 import socket
-import time
 import thread
-
-dataChannel = None
-binary = True
+import zlib
+import glob
+import os
 
 def Send(s, i):
 	try:
-		s.send(i + '\n')
+		s.send(i)
 	except:
-		print 'The server is no longer connected.'
+		print 'The server is no longer connected'
 
-def ServerOutput(s, serverIP):
-	def DownloadFile(info):
-		try:
-			c = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-			while True:
-				try:
-					print 'Trying to connect'
-					print serverIP
-					c.connect((serverIP, info[2]))
-					break
-				except:
-					time.sleep(1)
-			
-			f = open(info[0].split(' ', 1)[1], 'wb')
-			while True:
-				data = c.recv(4096)
-				if not data:
-					break
-				f.write(data)
-			f.close()
-			print 'Finished ' + info[0].split(' ', 1)[1]
-		except:
-			pass
+def Passive(ip):
+	pC = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	pC.connect((ip, 832))
 	
+	return pC
+
+def SendFile(fileName, ip, binary, compress, encrypt):
+	pC = Passive(ip)
+	if os.path.isfile(fileName):
+		pC.send(str(os.path.getsize(fileName)))
+
+		f = open(fileName, 'rb' if binary else 'r')
+		l = f.read(4096)
+		while l:
+			if compress:
+				cData = zlib.compress(l, zlib.Z_BEST_COMPRESSION)
+				pC.send(cData if len(cData) < 4096 else l)
+				pC.recv(5)
+			else:
+				pC.send(l)
+			l = f.read(4096)
+		f.close()
+		print 'Server has finished downloading ' + fileName
+	else:
+		pC.send('-1')
+	pC.close()
+
+def SendMultipleFiles(s, files, ip, binary, compress, encrypt):
+	fileList = glob.glob(files)
+	for f in fileList:
+		f = os.path.basename(f)
+		Send(s, 'PUT ' + f)
+		SendFile(f, ip, binary, compress, encrypt)
+
+def ReceiveFile(fileName, ip, binary, compress, encrypt):
+	pC = Passive(ip)
+	fileSize = int(pC.recv(1024))
+	if fileSize > -1:
+		print 'Downloading ' + fileName
+		f = open(fileName, 'wb' if binary else 'w')
+		while True:
+			data = pC.recv(4096)
+			if not data:
+				break
+			if compress:
+				f.write(data if len(data) == 4096 else zlib.decompress(data))
+				pC.send('Go')
+			else:
+				f.write(data)
+		f.close()
+		print 'Finished downloading ' + fileName
+	else:
+		print fileName + ' does not exist'
+	pC.close()
+
+def ReceiveMultipleFiles(s, fileName, ip, binary, compress, encrypt):
+	pC = Passive(ip)
+	fileListString = str(pC.recv(8192))
+	fileList = fileListString.split('|')
+	print fileListString
+	pC.close()
+	for f in fileList:
+		f = os.path.basename(f)
+		Send(s, 'GET ' + f)
+		ReceiveFile(f, ip, binary, compress, encrypt)
+
+def ServerOutput(s):
 	while True:
 		try:
 			out = str(s.recv(4096))
 			print out
-			global dataChannel
-			if out.startswith('227'):
-				response = out.split('(')[1].split(',')
-				ip = response[0] + '.' + response[1] + '.' + response[2] + '.' + response[3]
-				port = int(response[4]) * 256 + int(response[5].replace(')', ''))
-				dataChannel = (dataChannel, ip, port)
-			elif out.startswith('150'):
-				global binary
-				if (dataChannel[0].upper().startswith('RETR') or dataChannel[0].upper().startswith('GET')) and binary:
-					thread.start_new_thread(DownloadFile, (dataChannel,))
-				elif dataChannel[0].upper().startswith('LIST') or dataChannel[0].upper().startswith('MLSD') or not binary:
-					thread.start_new_thread(HandleASCII, (dataChannel,))
-				dataChannel = None
-
 		except:
 			break
-
-def HandleASCII(info):
-	try:
-		c = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		c.connect((info[1], info[2]))
-
-		listing = ''
-		while True:
-			data = c.recv(16)
-			if not data:
-				break
-			listing = listing + data
-		print listing
-	except:
-		pass
 
 def main():
 	while True:
 		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		ip = None
+		compress = encrypt = False
+		binary = True
+		
+		def Send(i):
+			try:
+				s.send(i)
+			except:
+				print 'The server is no longer connected'
+
 		while True:
 			try:
 				ip = raw_input('Server Address- ')
@@ -89,7 +111,7 @@ def main():
 
 		while True:
 			i = raw_input('USER ')
-			Send(s, 'USER ' + i)
+			Send('USER ' + i)
 			response = str(s.recv(1024))
 			print response
 			if response.startswith('331'):
@@ -97,49 +119,54 @@ def main():
 
 		while True:
 			i = getpass.getpass('PASS ')
-			Send(s, 'PASS ' + i)
+			Send('PASS ' + i)
 			response = str(s.recv(1024))
 			print response
 			if response.startswith('230'):
 				break
 	
-		thread.start_new_thread(ServerOutput, (s,ip))
+		thread.start_new_thread(ServerOutput, (s,))
 		while True:
 			i = raw_input()
 			while len(i) == 0:
 				i = raw_input()
-			if i.upper() == 'QUIT':
+			iSplit = i.split(' ', 1)
+			command = iSplit[0].upper()
+			if command == 'CD' or command == 'LS' or command == 'DIR':
+				Send(i)
+			elif command == 'GET':
+				Send(i)
+				ReceiveFile(iSplit[1], ip, binary, compress, encrypt)
+			elif command == 'MGET':
+				Send(i)
+				ReceiveMultipleFiles(s, iSplit[1], ip, binary, compress, encrypt)
+			elif command == 'PUT':
+				Send(i)
+				SendFile(iSplit[1], ip, binary, compress, encrypt)
+			elif command == 'MPUT':
+				SendMultipleFiles(s, iSplit[1], ip, binary, compress, encrypt)
+			elif command == 'ASCII':
+				binary = False
+				Send(i)
+			elif command == 'BINARY':
+				binary = True
+				Send(i)
+			elif command == 'COMPRESS':
+				compress = not compress
+				Send(i)
+			elif command == 'ENCRYPT':
+				encrypt = not encrypt
+				Send(i)
+			elif command == 'NORMAL':
+				compress = encrypt = False
+				Send(i)
+			elif command == 'QUIT':
+				Send(i)
 				break
-			if i.upper().startswith('RETR ') or i.upper().startswith('GET ') or i.upper().startswith('MLSD ') or i.upper().startswith('LIST '):
-				Send(s, 'PASV')
-				Send(s, i)
-				global dataChannel
-				dataChannel = i
-			elif i.upper().startswith('ASCII'):
-				global binary
-				binary = not binary
-			else:
-				Send(s, i)
 		s.close()
+		print 'Please Enter a New Server Address'
 
 ctypes.windll.kernel32.SetConsoleTitleA("FTPython")
 print 'Welcome to FTPython\n'
 
 main()
-
-# CD	CWD		<dir>
-# LS	LIST	-
-# DIR	MLSD	-
-# GET	RETR	<file>
-# PUT			<file>
-# MGET			<folder> || *.* || *.<ext> || <name>.* || <name>|<name>
-# MPUT			<folder> || *.* || *.<ext> || <name>.* || <name>|<name>
-# ASCII-EC		Enable ASCII, disable binary
-# BINARY		Enable binary, disable ASCII
-# QUIT			Disconnect from the server
-# COMPRESS		Enable/disable compression
-# ENCRYPT		Enable/disable encryption
-# NORMAL		Turn off encryption and compression
-# 
-# CRC for each packet
-# Asynchronously send packets
